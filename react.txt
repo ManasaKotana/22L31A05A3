@@ -1,0 +1,147 @@
+import React, { useState } from "react";
+
+export default function App() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [token, setToken] = useState(localStorage.getItem("token") || "");
+  const [message, setMessage] = useState("");
+  const [longUrl, setLongUrl] = useState("");
+  const [customCode, setCustomCode] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState("");
+  const [shortUrl, setShortUrl] = useState("");
+  const [history, setHistory] = useState([]);
+
+  const logEvent = async (event, details = {}) => {
+    console.log(`[LOG] ${event}`, details);
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setMessage("Logging in...");
+    await logEvent("Login attempt", { username });
+
+    try {
+      const res = await fetch("http://20.244.56.144/evaluation-service-auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!res.ok) throw new Error("Login failed");
+
+      const data = await res.json();
+      setToken(data.token);
+      localStorage.setItem("token", data.token);
+      setMessage("✅ Login successful!");
+      await logEvent("Login success", { token: data.token });
+    } catch (err) {
+      setMessage("❌ " + err.message);
+      await logEvent("Login error", { error: err.message });
+    }
+  };
+
+  const handleShorten = async (e) => {
+    e.preventDefault();
+    setMessage("Creating short URL...");
+    setShortUrl("");
+    await logEvent("Shorten request", { longUrl, customCode, expiresInDays });
+
+    try {
+      if (!longUrl.startsWith("http")) {
+        throw new Error("URL must start with http:// or https://");
+      }
+
+      const payload = { longUrl };
+      if (customCode) payload.customCode = customCode;
+      if (expiresInDays) payload.expiresInDays = Number(expiresInDays);
+
+      const res = await fetch("http://20.244.56.144/evaluation-service-auth/shorten", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) throw new Error("Custom short code already exists.");
+        throw new Error("Failed to shorten URL");
+      }
+
+      const data = await res.json();
+      setShortUrl(data.shortUrl);
+      setMessage("✅ Short URL created!");
+      setHistory((prev) => [{ longUrl, shortUrl: data.shortUrl }, ...prev]);
+      await logEvent("Shorten success", { response: data });
+    } catch (err) {
+      setMessage("❌ " + err.message);
+      await logEvent("Shorten error", { error: err.message });
+    }
+  };
+
+  const handleLogout = () => {
+    setToken("");
+    localStorage.removeItem("token");
+    setMessage("Logged out successfully.");
+    logEvent("Logout", {});
+  };
+
+  return (
+    <div style={{ maxWidth: "600px", margin: "50px auto", textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+      <h1>Professional URL Shortener</h1>
+
+      {!token ? (
+        <form onSubmit={handleLogin} style={{ display: "grid", gap: "10px", marginTop: "20px" }}>
+          <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <button type="submit" style={{ padding: "10px", fontSize: "16px" }}>Login</button>
+        </form>
+      ) : (
+        <div>
+          <p>✅ Logged in</p>
+          <form onSubmit={handleShorten} style={{ display: "grid", gap: "10px", marginTop: "20px" }}>
+            <input type="url" placeholder="Enter long URL" value={longUrl} onChange={(e) => setLongUrl(e.target.value)} required />
+            <input type="text" placeholder="Custom code (optional)" value={customCode} onChange={(e) => setCustomCode(e.target.value)} />
+            <input type="number" placeholder="Expires in days (optional)" value={expiresInDays} onChange={(e) => setExpiresInDays(e.target.value)} />
+            <button type="submit" style={{ padding: "10px", fontSize: "16px" }}>Shorten</button>
+          </form>
+
+          {shortUrl && (
+            <p style={{ marginTop: "10px" }}>
+              🔗 Short URL: <a href={shortUrl} target="_blank" rel="noreferrer">{shortUrl}</a>
+            </p>
+          )}
+
+          {history.length > 0 && (
+            <div style={{ marginTop: "20px", textAlign: "left" }}>
+              <h3>Session History</h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ border: "1px solid #ddd", padding: "8px" }}>Original URL</th>
+                    <th style={{ border: "1px solid #ddd", padding: "8px" }}>Short URL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((item, idx) => (
+                    <tr key={idx}>
+                      <td style={{ border: "1px solid #ddd", padding: "8px" }}>{item.longUrl}</td>
+                      <td style={{ border: "1px solid #ddd", padding: "8px" }}>
+                        <a href={item.shortUrl} target="_blank" rel="noreferrer">{item.shortUrl}</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <button onClick={handleLogout} style={{ marginTop: "20px", padding: "10px", fontSize: "16px" }}>Logout</button>
+        </div>
+      )}
+
+      {message && <p style={{ marginTop: "20px", fontWeight: "bold" }}>{message}</p>}
+    </div>
+  );
+}
